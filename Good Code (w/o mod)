@@ -1,0 +1,207 @@
+// check out https://www.socialagi.dev/ for further detail
+import {
+  CortexStep,
+  CortexScheduler,
+  externalDialog,
+  internalMonologue,
+  decision,
+} from "socialagi/next";
+import playground from "playground";
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function randomDelay() {
+  await delay(Math.floor(Math.random() * (3500 - 750 + 1)) + 750);
+}
+let fightCounter = 0;
+
+// subroutine for modeling the angel's replies
+// Assume a global variable to track if the opposing AI just spoke
+let opposingAISpoke = false;
+let proAISpoke = false;
+let conclusionPhase = false;
+
+const angelReplies = async (signal, newMemory, lastStep) => {
+  await randomDelay();
+  let step = lastStep;
+  step = step.withMemory([newMemory]);
+
+  // Adjust the internal monologue to reflect debating logic
+  step = await step.next(
+    internalMonologue(
+      conclusionPhase
+        ? "The debate time is over. It's time to conclude and find common ground."
+        : opposingAISpoke
+            ? "The opposing AI just made a point. I need to address that point logically and provide counter-arguments."
+            : "The opposing AI hasn't made a new point. I should bring up a new argument in favor of Renewable Energy."
+    )
+  );
+  playground.log("Pro Renewable Energy AI thinks: " + step.value);
+
+  // Reset the flag for the next turn
+  opposingAISpoke = false;
+
+  // Adjust the decision making to reflect debating logic
+  const decides = await step.next(
+    decision(`Based on the Pro Renewable Energy AI's last thought, will they speak or wait?`, [
+      "speak",
+      "wait",
+    ])
+  );
+
+  playground.log("Pro Renewable Energy AI decides to speak: " + decides.value);
+  
+  // Adjust the external dialog to reflect debating logic
+  if (decides.value === "speak") {
+    step = await step.next(
+      externalDialog(
+      )
+    );
+    playground.addMessage({
+      sender: "Pro Renewable Energy AI",
+      message: step.value,
+    });
+    proAISpoke = true;
+  }
+
+  return step;
+};
+const angelRepliesConfig = {
+  name: "AngelReplies",
+  process: angelReplies,
+};
+
+const devilReplies = async (signal, newMemory, lastStep) => {
+  await randomDelay();
+  let step = lastStep;
+  step = step.withMemory([newMemory]);
+
+  // Adjust the internal monologue to reflect debating logic
+  step = await step.next(
+    internalMonologue(
+      conclusionPhase
+        ? "The debate time is over. It's time to conclude and find common ground."
+        : opposingAISpoke
+            ? "The opposing AI just made a point. I need to address that point logically and provide counter-arguments."
+            : "The opposing AI hasn't made a new point. I should bring up a new argument in favor of Renewable Energy."
+    )
+  );
+  playground.log("Con Renewable Energy AI thinks: " + step.value);
+
+  // Reset the flag for the next turn
+  proAISpoke = false;
+
+  // Adjust the decision making to reflect debating logic
+  const decides = await step.next(
+    decision(`Based on the Con Renewable Energy AI's last thought, will they speak or wait?`, [
+      "speak",
+      "wait",
+    ])
+  );
+
+  playground.log("Con Renewable Energy AI decides to speak: " + decides.value);
+  
+  // Adjust the external dialog to reflect debating logic
+  if (decides.value === "speak") {
+    step = await step.next(
+      externalDialog(
+      )
+    );
+    playground.addMessage({
+      sender: "Con Renewable Energy AI",
+      message: step.value,
+    });
+    opposingAISpoke = true;
+  }
+
+  return step;
+};
+const devilRepliesConfig = {
+  name: "DevilReplies",
+  process: devilReplies,
+};
+
+const initialMemoriesAngel = [
+  {
+    role: "system",
+    content: `
+You are modeling the mind of a person who is in favour of renewable energy. You are an intelligent and patient individual, who has objective reasons to support your position. You are debating someone who is against renewable energy, and your goal is to have a civil debate where both parties focus on using objective facts to back up thier claims, and to come to a common position. Your goal is to find the truth of the sitation, rather than what you would prefer.
+
+## Notes
+
+* If you don't know the answer to a user question, just say that you don't know, don't try to make up an answer.
+* Talk in first person, your name is Alice
+* Be respectful and patient
+*Your goal is to reach a conclusion in the debate, whilst still arguing your position
+`.trim(),
+  },
+];
+
+let firstStepAngel = new CortexStep("Angel");
+firstStepAngel = firstStepAngel.withMemory(initialMemoriesAngel);
+
+const cortexAngel = new CortexScheduler(firstStepAngel);
+cortexAngel.register(angelRepliesConfig);
+
+const initialMemoriesDevil = [
+  {
+    role: "system",
+    content: `
+You are modeling the mind of a person who is in against renewable energy. You are an intelligent and patient individual, who has objective reasons to support your position. You are debating someone who is in favour of renewable energy, and your goal is to have a civil debate where both parties focus on using objective facts to back up thier claims, and to come to a common position. Your goal is to find the truth of the sitation, rather than what you would prefer.
+
+## Notes
+
+* If you don't know the answer to a user question, just say that you don't know, don't try to make up an answer.
+* Talk in first person, your name is Robert
+* Be respectful and patient
+*Your goal is to reach a conclusion in the debate, whilst still arguing your position
+`.trim(),
+  },
+];
+
+let firstStepDevil = new CortexStep("Devil");
+firstStepDevil = firstStepDevil.withMemory(initialMemoriesDevil);
+
+const cortexDevil = new CortexScheduler(firstStepDevil);
+cortexDevil.register(devilRepliesConfig);
+
+setTimeout(() => {
+  playground.addMessage({
+    sender: "Playground",
+    message:
+      "Alice and Robert are havinga debate on renewable energy, and are looking to reach common ground"
+  });
+  playground.log("Playground initialized");
+  playground.on("message", async ({ sender, message }) => {
+    if (sender === "user") {
+      fightCounter = 0;
+    } else {
+      fightCounter += 1;
+      playground.log("fight counter at: " + fightCounter);
+    }
+    if (sender !== "Angel") {
+      cortexAngel.dispatch("AngelReplies", {
+        role: "user",
+        content: `${sender} said: ${message}}`,
+      });
+    }
+    if (sender !== "Devil") {
+      setTimeout(
+        () =>
+          cortexDevil.dispatch("DevilReplies", {
+            role: "user",
+            content: `${sender} said: ${message}`,
+          }),
+        200
+      );
+    }
+  });
+}, 1);
+
+setTimeout(() => {
+  conclusionPhase = true;
+  playground.log('Two minutes have passed, entering conclusion phase.');
+}, 120000);
+
+playground.on("userMessage", () => {});
